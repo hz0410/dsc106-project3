@@ -10,6 +10,8 @@ const monthNames = [
 const svg = d3.select("#map");
 const lineSvg = d3.select("#line-chart");
 const tooltip = d3.select("#tooltip");
+const yearSlider = d3.select("#year-slider");
+const yearLabel = d3.select("#year-label");
 const monthSlider = d3.select("#month-slider");
 const monthLabel = d3.select("#month-label");
 const countrySelect = d3.select("#country-select");
@@ -27,30 +29,58 @@ const formatValue = d3.format(".3f");
 
 Promise.all([
   d3.json("world.geojson"),
-  d3.csv("aerosol_1850_by_country.csv", d => ({
-    name: d.name,
-    key: normalize(d.name),
-    time: d.time,
-    month: new Date(d.time).getUTCMonth() + 1,
-    od550aer: +d.od550aer
-  }))
+  d3.csv("aerosol_1950_2014_by_country.csv", d => {
+    const date = new Date(d.time + "T00:00:00Z");
+    return {
+      name: d.name,
+      key: normalize(d.name),
+      time: d.time,
+      year: date.getUTCFullYear(),
+      month: date.getUTCMonth() + 1,
+      od550aer: +d.od550aer
+    };
+  })
 ]).then(([world, data]) => {
+  data = data.filter(d => Number.isFinite(d.od550aer) && d.year >= 1950 && d.year <= 2014);
+
   const countries = Array.from(new Set(data.map(d => d.name))).sort(d3.ascending);
+  const years = Array.from(new Set(data.map(d => d.year))).sort(d3.ascending);
+  const minYear = d3.min(years);
+  const maxYear = d3.max(years);
+
   let selectedCountry = countries.includes("Afghanistan") ? "Afghanistan" : countries[0];
+  let selectedYear = minYear;
   let selectedMonth = 1;
+
+  yearSlider
+    .attr("min", minYear)
+    .attr("max", maxYear)
+    .attr("step", 1)
+    .property("value", selectedYear);
 
   const values = data.map(d => d.od550aer).filter(Number.isFinite);
   const color = d3.scaleSequentialSqrt(d3.interpolateYlOrRd)
     .domain([0, d3.max(values)]);
 
-  const dataByMonthCountry = d3.rollup(
+  // year -> month -> country -> mean AOD
+  const dataByYearMonthCountry = d3.rollup(
     data,
     v => d3.mean(v, d => d.od550aer),
+    d => d.year,
     d => d.month,
     d => d.key
   );
 
+  // country -> rows
   const countrySeries = d3.group(data, d => d.name);
+
+  // country -> year -> annual mean AOD
+  const annualByCountry = d3.rollup(
+    data,
+    v => d3.mean(v, d => d.od550aer),
+    d => d.name,
+    d => d.year
+  );
 
   countrySelect
     .selectAll("option")
@@ -76,16 +106,14 @@ Promise.all([
     .attr("data-name", d => d.properties.name)
     .on("mousemove", (event, d) => {
       const name = d.properties.name;
-      const value = getCountryValue(name, selectedMonth);
-      tooltip
-        .hidden = false;
+      const value = getCountryValue(name, selectedYear, selectedMonth);
       tooltip
         .attr("hidden", null)
         .style("left", `${event.pageX + 14}px`)
         .style("top", `${event.pageY + 14}px`)
         .html(`
           <strong>${name}</strong><br>
-          ${monthNames[selectedMonth - 1]} 1850<br>
+          ${monthNames[selectedMonth - 1]} ${selectedYear}<br>
           Aerosol optical depth: ${Number.isFinite(value) ? formatValue(value) : "No data"}
         `);
     })
@@ -101,6 +129,11 @@ Promise.all([
       }
     });
 
+  yearSlider.on("input", event => {
+    selectedYear = +event.target.value;
+    update();
+  });
+
   monthSlider.on("input", event => {
     selectedMonth = +event.target.value;
     update();
@@ -113,16 +146,17 @@ Promise.all([
 
   update();
 
-  function getCountryValue(name, month) {
-    return dataByMonthCountry.get(month)?.get(normalize(name));
+  function getCountryValue(name, year, month) {
+    return dataByYearMonthCountry.get(year)?.get(month)?.get(normalize(name));
   }
 
   function update() {
+    yearLabel.text(selectedYear);
     monthLabel.text(monthNames[selectedMonth - 1]);
 
     countryPaths
       .attr("fill", d => {
-        const value = getCountryValue(d.properties.name, selectedMonth);
+        const value = getCountryValue(d.properties.name, selectedYear, selectedMonth);
         return Number.isFinite(value) ? color(value) : "#1f2937";
       })
       .classed("selected", d => d.properties.name === selectedCountry);
@@ -133,16 +167,16 @@ Promise.all([
   }
 
   function updateSelectedCountry() {
-    const value = getCountryValue(selectedCountry, selectedMonth);
+    const value = getCountryValue(selectedCountry, selectedYear, selectedMonth);
     selectedCountryLabel.text(selectedCountry);
     selectedValueLabel.text(
-      `${monthNames[selectedMonth - 1]} value: ${Number.isFinite(value) ? formatValue(value) : "No data"}`
+      `${monthNames[selectedMonth - 1]} ${selectedYear}: ${Number.isFinite(value) ? formatValue(value) : "No data"}`
     );
   }
 
   function updateTopList() {
     const rows = data
-      .filter(d => d.month === selectedMonth && Number.isFinite(d.od550aer))
+      .filter(d => d.year === selectedYear && d.month === selectedMonth && Number.isFinite(d.od550aer))
       .sort((a, b) => d3.descending(a.od550aer, b.od550aer))
       .slice(0, 6);
 
@@ -159,16 +193,18 @@ Promise.all([
 
     lineSvg.selectAll("*").remove();
 
-    const series = (countrySeries.get(selectedCountry) ?? [])
-      .slice()
-      .sort((a, b) => d3.ascending(a.month, b.month));
+    const countryAnnual = annualByCountry.get(selectedCountry) ?? new Map();
+    const series = years.map(year => ({
+      year,
+      od550aer: countryAnnual.get(year)
+    }));
 
     const x = d3.scaleLinear()
-      .domain([1, 12])
+      .domain([minYear, maxYear])
       .range([0, innerWidth]);
 
     const y = d3.scaleLinear()
-      .domain([0, d3.max(data, d => d.od550aer)]).nice()
+      .domain([0, d3.max(series, d => d.od550aer) || 1]).nice()
       .range([innerHeight, 0]);
 
     const g = lineSvg.append("g")
@@ -176,7 +212,7 @@ Promise.all([
 
     g.append("g")
       .attr("transform", `translate(0,${innerHeight})`)
-      .call(d3.axisBottom(x).ticks(12).tickFormat(d => monthNames[d - 1].slice(0, 3)))
+      .call(d3.axisBottom(x).ticks(5).tickFormat(d3.format("d")))
       .call(g => g.selectAll("text").attr("font-size", 10));
 
     g.append("g")
@@ -185,7 +221,7 @@ Promise.all([
 
     const line = d3.line()
       .defined(d => Number.isFinite(d.od550aer))
-      .x(d => x(d.month))
+      .x(d => x(d.year))
       .y(d => y(d.od550aer));
 
     g.append("path")
@@ -194,19 +230,26 @@ Promise.all([
       .attr("d", line);
 
     g.selectAll("circle")
-      .data(series)
+      .data(series.filter(d => Number.isFinite(d.od550aer)))
       .join("circle")
-      .attr("class", d => d.month === selectedMonth ? "trend-point active" : "trend-point")
-      .attr("cx", d => x(d.month))
+      .attr("class", d => d.year === selectedYear ? "trend-point active" : "trend-point")
+      .attr("cx", d => x(d.year))
       .attr("cy", d => y(d.od550aer))
-      .attr("r", d => d.month === selectedMonth ? 5 : 3);
+      .attr("r", d => d.year === selectedYear ? 5 : 2.5);
+
+    g.append("line")
+      .attr("class", "year-marker")
+      .attr("x1", x(selectedYear))
+      .attr("x2", x(selectedYear))
+      .attr("y1", 0)
+      .attr("y2", innerHeight);
 
     g.append("text")
       .attr("class", "axis-label")
       .attr("x", innerWidth / 2)
       .attr("y", innerHeight + 34)
       .attr("text-anchor", "middle")
-      .text("Month in 1850");
+      .text("Year");
 
     g.append("text")
       .attr("class", "axis-label")
@@ -214,11 +257,11 @@ Promise.all([
       .attr("x", -innerHeight / 2)
       .attr("y", -36)
       .attr("text-anchor", "middle")
-      .text("AOD");
+      .text("Annual mean AOD");
   }
 }).catch(error => {
   console.error(error);
   d3.select("main").insert("p", ":first-child")
     .attr("class", "error")
-    .text("Could not load the data. Make sure world.geojson and aerosol_1850_by_country.csv are in the same folder as index.html.");
+    .text("Could not load the data. Make sure world.geojson and aerosol_1950_2014_by_country.csv are in the same folder as index.html.");
 });

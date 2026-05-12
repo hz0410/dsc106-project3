@@ -9,9 +9,9 @@
 <body>
   <header class="hero">
     <p class="project-label">DSC 106 · Interactive Climate Visualization</p>
-    <h1>Aerosol Concentration Around the World in 1850</h1>
+    <h1>Aerosol Concentration Around the World, 1950–2014</h1>
     <p class="subtitle">
-      Explore how aerosol optical depth varied across countries month by month in 1850.
+      Explore how aerosol optical depth changed across countries by month and year.
       Darker and warmer colors indicate higher aerosol concentration.
     </p>
 
@@ -26,7 +26,13 @@
   <main>
     <section class="controls-card" aria-label="interactive controls">
       <div class="control-group">
-        <label for="month-slider">Month in 1850</label>
+        <label for="year-slider">Year</label>
+        <input id="year-slider" type="range" min="1950" max="2014" step="1" value="1950" />
+        <strong id="year-label">1950</strong>
+      </div>
+
+      <div class="control-group">
+        <label for="month-slider">Month</label>
         <input id="month-slider" type="range" min="1" max="12" step="1" value="1" />
         <strong id="month-label">January</strong>
       </div>
@@ -42,7 +48,7 @@
         <div class="chart-header">
           <div>
             <h2>World map</h2>
-            <p>Average aerosol optical depth by country for the selected month.</p>
+            <p>Average aerosol optical depth by country for the selected month and year.</p>
           </div>
           <div class="legend" aria-label="color legend">
             <span>Low</span>
@@ -57,16 +63,16 @@
         <div class="metric-card">
           <p class="eyebrow">Selected country</p>
           <h2 id="selected-country">Afghanistan</h2>
-          <p id="selected-value">January value: —</p>
+          <p id="selected-value">January 1950: —</p>
         </div>
 
         <div class="metric-card">
-          <p class="eyebrow">Monthly trend</p>
-          <svg id="line-chart" viewBox="0 0 420 260" role="img" aria-label="monthly aerosol trend"></svg>
+          <p class="eyebrow">Annual trend</p>
+          <svg id="line-chart" viewBox="0 0 420 260" role="img" aria-label="annual aerosol trend"></svg>
         </div>
 
         <div class="metric-card">
-          <p class="eyebrow">Highest regions this month</p>
+          <p class="eyebrow">Highest regions for selected date</p>
           <ol id="top-list"></ol>
         </div>
       </aside>
@@ -77,12 +83,12 @@
       <div class="text-card">
         <p>
           This visualization uses CMIP6 aerosol optical depth at 550 nm (<code>od550aer</code>)
-          aggregated by country for each month in 1850. Aerosol optical depth measures how much
+          aggregated by country from 1950 to 2014. Aerosol optical depth measures how much
           airborne particles such as dust, smoke, and pollution block sunlight.
         </p>
         <p>
-          Use the slider to move through the months of 1850. Hover over a country to see its exact
-          value, or select a country to view its monthly trend.
+          Use the year slider and month slider to move through time. Hover over a country to see
+          its exact value, or select a country to view its long-term annual trend.
         </p>
       </div>
     </section>
